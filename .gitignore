@@ -1,0 +1,38 @@
+# Personal data, logs and databases never belong here
+decrypted/
+backups/
+phone-backup*/
+synced-from-phone/
+apk-check/
+logs/
+*.db
+*.sqlite*
+*.csv
+history*.html
+*.log
+
+# Backups and local copies
+*.bak*
+*.orig
+
+# Binaries, keys and build output
+*.apk
+*.apk.idsig
+*.jks
+*.jks.*
+*.ttf
+*.otf
+*.jpg
+*.png
+rclone.conf
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+
+# Secrets
+.env
+.env.*
+*.pem
+*.key
+*service-account*.json
