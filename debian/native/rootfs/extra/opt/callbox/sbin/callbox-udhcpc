@@ -1,0 +1,13 @@
+#!/bin/sh
+# udhcpc hook for wlan0: Wi-Fi is the preferred route (metric 100); LTE (seth_lte0) keeps metric 1000.
+# DNS is the fixed public list in /etc/resolv.conf, reachable over either link.
+case "$1" in
+  deconfig) ip -4 addr flush dev "$interface"; ip link set "$interface" up ;;
+  bound|renew)
+    ip -4 addr flush dev "$interface"
+    ip -4 addr add "$ip/${mask:-24}" dev "$interface"
+    ip -4 route del default dev "$interface" 2>/dev/null
+    for r in $router; do ip -4 route add default via "$r" dev "$interface" metric 100; echo "$r" > /run/callbox/wlan0-router; break; done
+    logger -t dhcp-wlan0 "lease on $interface, default route metric 100" ;;
+esac
+exit 0

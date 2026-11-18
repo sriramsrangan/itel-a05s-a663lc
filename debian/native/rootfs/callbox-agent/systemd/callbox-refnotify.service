@@ -1,0 +1,16 @@
+[Unit]
+Description=Call box: Android refnotify
+Requires=callbox-modem-control.service
+After=callbox-modem-control.service
+
+[Service]
+Type=simple
+Environment=LD_LIBRARY_PATH=/android/lib64
+ExecStartPre=/opt/callbox/sbin/callbox-wait-dev.sh /dev/stty_lte2 90
+ExecStart=/android/bin/refnotify
+TimeoutStartSec=120
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

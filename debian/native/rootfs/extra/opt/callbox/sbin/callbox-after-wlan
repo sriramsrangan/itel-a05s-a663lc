@@ -1,0 +1,5 @@
+#!/bin/sh
+# Wait for wlan0 (created when the Wi-Fi driver has started the WCN chip), then run.
+i=0; while [ ! -d /sys/class/net/wlan0 ] && [ $i -lt 120 ]; do sleep 1; i=$((i+1)); done
+[ -d /sys/class/net/wlan0 ] || exit 1
+exec "$@"

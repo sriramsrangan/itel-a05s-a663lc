@@ -1,0 +1,14 @@
+#!/bin/sh
+# When Wi-Fi drops, the kernel deletes its default route; udhcpc only restores it at the next renewal.
+# Every 5 s: if wlan0 is associated and has its address but no default route, ask udhcpc to renew,
+# and put the last known gateway back meanwhile. LTE (metric 1000) carries traffic until then.
+while true; do
+  sleep 5
+  [ "$(cat /sys/class/net/wlan0/operstate 2>/dev/null)" = up ] || continue
+  ip -4 route show default dev wlan0 2>/dev/null | grep -q . && continue
+  wpa_cli -p /run/wpa_supplicant -i wlan0 status 2>/dev/null | grep -q wpa_state=COMPLETED || continue
+  if ip -4 -o addr show wlan0 | grep -q inet && [ -s /run/callbox/wlan0-router ]; then
+    ip -4 route add default via "$(cat /run/callbox/wlan0-router)" dev wlan0 metric 100 2>/dev/null && logger -t wifi-route "restored Wi-Fi default route"
+  fi
+  pkill -USR1 -x udhcpc 2>/dev/null
+done

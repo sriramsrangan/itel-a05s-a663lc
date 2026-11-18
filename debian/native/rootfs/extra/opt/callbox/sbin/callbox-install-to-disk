@@ -1,0 +1,18 @@
+#!/bin/sh
+# Install the running RAM Debian onto userdata (ext4), from inside Debian so the modem services, which
+# feed the power-chip watchdog, are already running. Started by callbox-sysinit when the boot image
+# was built in install mode. Progress goes to syslog and pmsg; the result is in /run/callbox/install.
+set -u
+say() { echo "$*" | logger -t install-to-disk; [ -c /dev/pmsg0 ] && echo "$(cut -d' ' -f1 /proc/uptime) PVDEBIAN-INSTALL $*" > /dev/pmsg0; echo "$*" > /run/callbox/install; }
+sleep 60   # let the modem stack start first
+D=/dev/block/by-name/userdata
+[ -b "$D" ] || [ -e "$D" ] || { say "FAILED: no userdata partition"; exit 1; }
+grep -q " /mnt/target " /proc/mounts && umount /mnt/target
+say "formatting userdata"
+mkfs.ext4 -F -q -L callbox-root "$D" || { say "FAILED: mkfs.ext4"; exit 1; }
+mkdir -p /mnt/target && mount -t ext4 -o noatime "$D" /mnt/target || { say "FAILED: mount"; exit 1; }
+say "copying the root filesystem"
+rsync -aHAX --one-file-system --numeric-ids --exclude=/etc/callbox-ram-test --exclude=/etc/callbox-install-to-disk / /mnt/target/ || { say "FAILED: rsync"; exit 1; }
+mkdir -p /mnt/target/proc /mnt/target/sys /mnt/target/dev /mnt/target/run /mnt/target/tmp /mnt/target/mnt/vendor
+sync; n=$(du -sm /mnt/target | cut -f1); umount /mnt/target
+say "DONE: userdata holds Debian ($n MB); flash the disk boot image to boot_a"

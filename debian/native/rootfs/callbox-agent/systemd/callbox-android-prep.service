@@ -1,0 +1,12 @@
+[Unit]
+Description=Call box: /dev/block/by-name links (slot b aliased to a) and Android property area
+After=local-fs.target systemd-udevd.service
+Before=callbox-modem-control.service callbox-wifi-modules.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/callbox/sbin/callbox-prepare-android.sh
+
+[Install]
+WantedBy=multi-user.target

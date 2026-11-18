@@ -1,0 +1,4 @@
+#!/bin/sh
+# Hang up any call and stop the modem stack cleanly before a reboot.
+for n in 2 1; do [ -c /dev/stty_lte$n ] && { printf 'ATH\r' > /dev/stty_lte$n; }; done 2>/dev/null
+sync

@@ -1,0 +1,17 @@
+# Wi-Fi is preferred: default route metric 100. LTE (seth_lte0) is set by callbox-agent at 1000.
+[Match]
+Name=wlan0
+
+[Network]
+DHCP=yes
+IPv6AcceptRA=yes
+
+[DHCPv4]
+RouteMetric=100
+UseDNS=yes
+
+[DHCPv6]
+UseDNS=yes
+
+[IPv6AcceptRA]
+RouteMetric=100

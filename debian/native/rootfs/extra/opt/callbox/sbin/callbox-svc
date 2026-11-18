@@ -1,0 +1,13 @@
+#!/bin/sh
+# callbox-svc <name> <command...>: run one service for busybox init's respawn, with its output in
+# syslog under its name, then pause so a failing service does not spin.
+name=$1; shift
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export LD_LIBRARY_PATH= PYTHONPATH=/opt/callbox PYTHONUNBUFFERED=1
+case $1 in /android/*|/opt/callbox/sbin/callbox-after-modem) export LD_LIBRARY_PATH=/android/lib64;; esac
+[ -e /run/callbox/disabled-$name ] && { sleep 30; exit 0; }
+start=$(cut -d. -f1 /proc/uptime)
+"$@" 2>&1 | /usr/bin/busybox logger -t "$name"
+rc=$?
+echo "callbox-svc: $name exited ($rc) after $(( $(cut -d. -f1 /proc/uptime) - start ))s" | /usr/bin/busybox logger -t callbox-svc
+case $name in modem-control|cp-diskserver|refnotify) sleep 10;; vbc) sleep 2;; *) sleep 5;; esac

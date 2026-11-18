@@ -1,0 +1,112 @@
+#!/bin/busybox sh
+# Call box Debian boot for the itel A05s A663LC: stock kernel, this ramdisk, then switch_root to Debian.
+# Modes (file /rootmode in this ramdisk):
+#   disk     mount userdata (ext4) and boot the Debian on it
+#   ram      fetch the root filesystem over Wi-Fi into RAM and boot it (test, touches no storage)
+#   install  as ram, then Debian formats userdata and copies itself onto it (callbox-install-to-disk)
+# Every step is logged to kmsg and pmsg (kept across reboot in /sys/fs/pstore/pmsg-ramoops-0).
+# Any failure reboots after a delay; a test boot from slot b has already put slot a back as active.
+
+/bin/busybox --install -s /bin
+export PATH=/bin
+ID=__BUILD_ID__
+MODE=$(cat /rootmode 2>/dev/null || echo disk)
+MARK="PVDEBIAN-BOOT $ID"
+mkdir -p /proc /sys /dev /tmp /run /newroot
+mount -t proc proc /proc; mount -t sysfs sysfs /sys; mount -t devtmpfs devtmpfs /dev; mount -t tmpfs tmpfs /tmp
+[ -c /dev/kmsg ] || mknod /dev/kmsg c 1 11
+mdev -s 2>/dev/null
+log() { l="$(cut -d' ' -f1 /proc/uptime) $MARK: $*"; echo "$l" > /dev/kmsg; echo "$l" >> /tmp/boot.log; [ -c /dev/pmsg0 ] && echo "$l" > /dev/pmsg0; }
+fail() { log "FAILED: $*; rebooting in 120 s"; sleep 120; sync; reboot -f; }
+log "init started, mode $MODE"
+echo "7 4 1 7" > /proc/sys/kernel/printk
+
+# Kernel modules from the stock vendor ramdisk (not in dependency order: retry in passes).
+SKIP=" pvrsrvkm.ko sprd_flash_drv.ko flash_ic_ocp8137.ko flash_ic_sc2703.ko flash_ic_aw3641.ko flash_ic_ocp81780.ko sprd_camsys_pw_domain.ko sprd_sensor.ko sprd_camera.ko sprd_cpp.ko sprd-vsp-pw-domain.ko vsp.ko jpg.ko sensorhub.ko "
+loaded=0; todo=""
+for m in $(cat /lib/modules/modules.load.recovery); do case "$SKIP" in *" $m "*) ;; *) todo="$todo $m";; esac; done
+pass=0
+while [ -n "$todo" ] && [ $pass -lt 6 ]; do
+  pass=$((pass+1)); failed=""; before=$loaded
+  for m in $todo; do if insmod /lib/modules/$m 2>>/tmp/insmod.err; then loaded=$((loaded+1)); else failed="$failed $m"; fi; done
+  todo="$failed"; [ $loaded = $before ] && break
+done
+insmod /lib/modules-extra/seth.ko 2>>/tmp/insmod.err
+insmod /lib/modules-extra/sprd_pmic_wdt.ko 2>>/tmp/insmod.err
+mdev -s 2>/dev/null
+log "modules loaded $loaded, not loaded:$todo"
+
+# Partition names.
+mkdir -p /dev/block/by-name
+i=0; while [ ! -e /dev/block/by-name/userdata ] && [ $i -lt 30 ]; do
+  for u in /sys/class/block/*/uevent; do n=$(sed -n 's/^PARTNAME=//p' $u); [ -n "$n" ] && ln -sf /dev/$(basename $(dirname $u)) /dev/block/by-name/$n; done
+  [ -e /dev/block/by-name/userdata ] || { sleep 1; i=$((i+1)); }
+done
+[ -e /dev/block/by-name/userdata ] || fail "no userdata partition"
+
+# Make slot a the active, successful slot (so a test boot from slot b returns to slot a next time).
+MISC=$(readlink /dev/block/by-name/misc)
+if [ -n "$MISC" ] && [ -f /bcab-slot-a.bin ] && [ "$(dd if=$MISC bs=1 skip=2052 count=4 2>/dev/null)" = BCAB ]; then
+  dd if=/bcab-slot-a.bin of=$MISC bs=1 seek=2048 conv=notrunc 2>/dev/null; sync
+  [ "$(dd if=$MISC bs=1 skip=2048 count=32 2>/dev/null | md5sum | cut -c1-32)" = "$(md5sum /bcab-slot-a.bin | cut -c1-32)" ] && log "slot a set active" || log "slot a restore VERIFY FAILED"
+fi
+
+W="/alp/lib/ld-musl-aarch64.so.1 --library-path /alp/lib:/alp/usr/lib"
+wifi_up() {
+  mkdir -p /mnt/vendor /run/wpa_supplicant; mount -t ext4 -o ro /dev/block/by-name/prodnv /mnt/vendor
+  insmod /lib/modules-extra/wcn_bsp.ko 2>>/tmp/insmod.err; insmod /lib/modules-extra/sprd_wlan_combo.ko 2>>/tmp/insmod.err
+  i=0; while [ ! -d /sys/class/net/wlan0 ] && [ $i -lt 40 ]; do sleep 1; i=$((i+1)); done
+  [ -d /sys/class/net/wlan0 ] || fail "wlan0 missing"
+  ip link set lo up; ip link set wlan0 up
+  $W /alp/sbin/wpa_supplicant -B -D nl80211 -i wlan0 -c /etc/wpa.conf -P /run/wpa.pid > /tmp/wpa.log 2>&1
+  i=0; while [ $i -lt 60 ]; do $W /alp/sbin/wpa_cli -p /run/wpa_supplicant -i wlan0 status 2>/dev/null | grep -q wpa_state=COMPLETED && break; sleep 1; i=$((i+1)); done
+  udhcpc -i wlan0 -q -n -t 8 -s /udhcpc.script > /tmp/udhcpc.log 2>&1 || fail "no DHCP lease on Wi-Fi"
+  log "wifi up after ${i}s: $(ip -4 addr show wlan0 | grep -o 'inet [0-9.]*')"
+}
+wifi_down() {
+  kill $(cat /run/wpa.pid 2>/dev/null) 2>/dev/null; sleep 1
+  ip addr flush dev wlan0; ip link set wlan0 down
+  umount /mnt/vendor 2>/dev/null
+}
+fetch_root() { # fetch_root <target dir>
+  URL=$(cat /rooturl); SUM=$(cat /rootsha)
+  i=0; while [ $i -lt 5 ]; do
+    wget -q -O /tmp/root.tgz.part "$URL" 2>/tmp/wget.err && break; i=$((i+1)); sleep 5
+  done
+  [ "$(sha256sum /tmp/root.tgz.part 2>/dev/null | cut -c1-64)" = "$SUM" ] || fail "root filesystem download or checksum failed: $(head -c 120 /tmp/wget.err)"
+  log "root filesystem fetched ($(wc -c < /tmp/root.tgz.part) bytes), checksum ok"
+  tar -xzpf /tmp/root.tgz.part -C "$1" || fail "extract failed"
+  rm -f /tmp/root.tgz.part
+  log "root filesystem extracted: $(du -sm $1 | cut -f1) MB"
+}
+
+case $MODE in
+  ram)
+    mount -t tmpfs -o size=2500m,mode=755 tmpfs /newroot || fail "tmpfs"
+    mount -o remount,size=2700m /tmp
+    wifi_up; fetch_root /newroot; wifi_down
+    touch /newroot/etc/callbox-ram-test
+    ;;
+  install)
+    # Boot like the RAM test (fast, so modem_control starts before the power-chip watchdog fires),
+    # then Debian formats userdata and copies itself across (callbox-install-to-disk).
+    mount -t tmpfs -o size=2500m,mode=755 tmpfs /newroot || fail "tmpfs"
+    mount -o remount,size=2700m /tmp
+    wifi_up; fetch_root /newroot; wifi_down
+    touch /newroot/etc/callbox-ram-test /newroot/etc/callbox-install-to-disk
+    ;;
+  *)
+    i=0; while ! mount -t ext4 -o noatime /dev/block/by-name/userdata /newroot 2>/tmp/mount.err; do
+      i=$((i+1)); [ $i -ge 10 ] && fail "cannot mount userdata: $(cat /tmp/mount.err)"; sleep 2
+    done
+    ;;
+esac
+[ -x /newroot/usr/bin/busybox ] && [ -f /newroot/etc/inittab ] || fail "no busybox or inittab in the root filesystem"
+echo "$ID $MODE $(date +%s)" > /newroot/run-bootinfo 2>/dev/null
+cp /tmp/boot.log /newroot/var/log/callbox-initramfs.log 2>/dev/null
+log "switching root to Debian: newroot $(grep ' /newroot ' /proc/mounts | cut -d' ' -f3), root fs $(stat -f -c %T / 2>/dev/null)"
+# This kernel has no devtmpfs: hand Debian a tmpfs /dev holding the nodes mdev made here.
+mount -t tmpfs -o mode=755 tmpfs /newroot/dev && cp -a /dev/. /newroot/dev/ 2>/dev/null
+exec 2>/newroot/dev/kmsg 1>&2
+umount /tmp 2>/dev/null; umount /sys; umount /proc
+exec switch_root /newroot /usr/bin/busybox init

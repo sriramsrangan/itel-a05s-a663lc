@@ -1,0 +1,16 @@
+[Unit]
+Description=Call box: VBC responder on /dev/spipe_lte6 (without it ATD freezes every AT channel)
+After=callbox-modem-control.service
+Wants=callbox-modem-control.service
+
+[Service]
+Type=simple
+Environment=PYTHONPATH=/opt/callbox
+Environment=PYTHONUNBUFFERED=1
+# Opens the pipe only once /run/callbox/modem-at-ok exists (written by the agent when AT answers).
+ExecStart=/usr/bin/python3 -m callbox.vbc
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

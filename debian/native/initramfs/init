@@ -1,0 +1,139 @@
+#!/bin/busybox sh
+# Phone vault native test init for the itel A05s A663LC.
+# Runs from the boot image ramdisk on top of the stock vendor ramdisk (which supplies /lib/modules).
+# Proves execution with a USB gadget serial, an NCM link, a kernel log marker (kept by pstore) and a status page.
+# Reboots to the stock slot after FALLBACK seconds unless /tmp/stay exists.
+
+/bin/busybox --install -s /bin
+export PATH=/bin
+ID=__BUILD_ID__
+FALLBACK=600
+MARK="PVDEBIAN-MARKER $ID"
+
+mkdir -p /proc /sys /dev /tmp /config /run
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+mount -t tmpfs tmpfs /tmp
+mount -t tmpfs tmpfs /run
+mount -t configfs configfs /config 2>/dev/null || mount -t configfs configfs /sys/kernel/config
+MOUNTS="$(grep -E ' (/dev|/config|/tmp) ' /proc/mounts | cut -d' ' -f1-3 | tr '\n' ';')"
+# Create nodes ourselves too, in case devtmpfs is missing or incomplete.
+[ -c /dev/kmsg ] || mknod /dev/kmsg c 1 11
+mdev -s 2>/dev/null
+
+log() { l="$(cut -d' ' -f1 /proc/uptime) $MARK: $*"; echo "$l" > /dev/kmsg; echo "$l" >> /tmp/status.log; [ -c /dev/pmsg0 ] && echo "$l" > /dev/pmsg0; }
+log "init started, pid $$; mounts: $MOUNTS; kmsg $( [ -c /dev/kmsg ] && echo ok ); pmsg $( [ -c /dev/pmsg0 ] && echo ok )"
+echo 7 > /proc/sys/kernel/printk
+
+# Timed return to Android, so a hang in the test image still recovers.
+( sleep $FALLBACK; [ -e /tmp/stay ] || { log "fallback reboot"; sync; reboot -f; } ) &
+
+SKIP=" pvrsrvkm.ko sprd_flash_drv.ko flash_ic_ocp8137.ko flash_ic_sc2703.ko flash_ic_aw3641.ko flash_ic_ocp81780.ko sprd_camsys_pw_domain.ko sprd_sensor.ko sprd_camera.ko sprd_cpp.ko sprd-vsp-pw-domain.ko vsp.ko jpg.ko sensorhub.ko "
+# The list is not in dependency order, so retry failures until a pass loads nothing new.
+loaded=0; todo=""
+for m in $(cat /lib/modules/modules.load.recovery); do case "$SKIP" in *" $m "*) ;; *) todo="$todo $m";; esac; done
+pass=0
+while [ -n "$todo" ] && [ $pass -lt 6 ]; do
+  pass=$((pass+1)); failed=""; before=$loaded
+  for m in $todo; do
+    if insmod /lib/modules/$m 2>>/tmp/insmod.err; then loaded=$((loaded+1)); else failed="$failed $m"; fi
+  done
+  todo="$failed"
+  [ $loaded = $before ] && break
+done
+failed="$todo (passes $pass)"
+log "modules loaded $loaded, failed:$failed"
+mdev -s 2>/dev/null
+log "watchdog devices: $(ls /dev | grep -i watchdog | tr '\n' ' ') mmc nodes: $(ls /dev | grep -c mmcblk0p)"
+# Feed the PMIC watchdog the bootloader leaves running (Android loads this from vendor_dlkm).
+insmod /lib/modules-extra/seth.ko 2>>/tmp/insmod.err && log "seth module loaded"
+if insmod /lib/modules-extra/sprd_pmic_wdt.ko 2>>/tmp/insmod.err; then log "pmic watchdog module loaded"; else log "pmic watchdog module FAILED: $(tail -1 /tmp/insmod.err)"; fi
+log "block devices: $(ls /sys/class/block | wc -l), p3 $(grep PARTNAME /sys/class/block/mmcblk0p3/uevent 2>&1)"
+
+# One-shot slot: put back the saved boot control block (slot a active and successful),
+# so the next reboot returns to Android whatever happens here.
+i=0; MISC=""
+while [ -z "$MISC" ] && [ $i -lt 20 ]; do
+  for u in /sys/class/block/*/uevent; do grep -q '^PARTNAME=misc$' $u && MISC=/dev/$(basename $(dirname $u)); done
+  [ -z "$MISC" ] && { sleep 1; i=$((i+1)); }
+done
+if [ -n "$MISC" ] && [ -f /bcab-slot-a.bin ]; then
+  magic=$(dd if=$MISC bs=1 skip=2052 count=4 2>/dev/null)
+  if [ "$magic" = "BCAB" ]; then
+    dd if=/bcab-slot-a.bin of=$MISC bs=1 seek=2048 conv=notrunc 2>/dev/null; sync
+    if [ "$(dd if=$MISC bs=1 skip=2048 count=32 2>/dev/null | md5sum | cut -c1-32)" = "$(md5sum /bcab-slot-a.bin | cut -c1-32)" ]; then
+      log "slot a restored in $MISC"; else log "slot a restore VERIFY FAILED"; fi
+  else log "misc magic '$magic' unexpected, not touched"; fi
+else log "misc not found ($MISC), slot not restored"; fi
+
+# USB gadget: wait for the controller.
+i=0; while [ -z "$(ls /sys/class/udc 2>/dev/null)" ] && [ $i -lt 30 ]; do sleep 1; i=$((i+1)); done
+UDC=$(ls /sys/class/udc 2>/dev/null | head -1)
+log "udc '$UDC' after ${i}s"
+G=/config/usb_gadget/pv
+CFG=$(ls -d /config 2>/dev/null)
+[ -d /config/usb_gadget ] || G=/sys/kernel/config/usb_gadget/pv
+mkdir -p $G && cd $G
+echo 0x1d6b > idVendor; echo 0x0104 > idProduct
+mkdir -p strings/0x409
+echo "PVDEBIAN-$ID" > strings/0x409/serialnumber
+echo "Phone Vault" > strings/0x409/manufacturer
+echo "itel A663LC native test" > strings/0x409/product
+mkdir -p configs/c.1/strings/0x409; echo "ncm+acm" > configs/c.1/strings/0x409/configuration
+funcs=""
+for f in ncm.usb0 acm.GS0 rndis.usb0; do
+  if mkdir functions/$f 2>/dev/null; then funcs="$funcs $f"; fi
+done
+for f in $funcs; do case $f in rndis*) [ -n "$(echo $funcs | grep ncm)" ] && continue;; esac; ln -s functions/$f configs/c.1/; done
+echo "$UDC" > UDC 2>>/tmp/status.log
+cd /
+log "gadget functions:$funcs bound to '$(cat $G/UDC 2>/dev/null)'"
+
+# Network on the USB link.
+sleep 2
+IF=$(ls /sys/class/net | grep -E '^(usb|rndis)' | head -1)
+ifconfig lo 127.0.0.1 up
+ifconfig $IF 172.16.42.1 netmask 255.255.255.0 up
+cat > /tmp/udhcpd.conf <<EOF
+start 172.16.42.2
+end 172.16.42.2
+interface $IF
+option subnet 255.255.255.0
+lease_file /tmp/udhcpd.leases
+EOF
+touch /tmp/udhcpd.leases
+udhcpd /tmp/udhcpd.conf
+telnetd -l /bin/sh -p 23
+log "network $IF 172.16.42.1, telnet 23, http 80"
+
+# Serial console on the ACM function as well.
+( while true; do [ -e /dev/ttyGS0 ] && getty -n -l /bin/sh 115200 ttyGS0; sleep 2; done ) &
+
+# Status page: identity, storage (read only) and modem nodes.
+mkdir -p /www
+{
+  echo "$MARK"
+  echo "uname: $(uname -a)"
+  echo "cmdline: $(cat /proc/cmdline)"
+  echo "mem: $(grep MemTotal /proc/meminfo)"
+  echo "--- block devices"
+  cat /proc/partitions
+  echo "--- userdata superblock magic (read only, offset 1024)"
+  hexdump -C -s 1024 -n 16 /dev/mmcblk0p68 2>&1
+  echo "--- modem and sipc nodes"
+  ls /dev | grep -iE 'stty|spipe|sbuf|modem|sdiag|slog|sipc' | tr '\n' ' '; echo
+  ls /proc/cptl /proc/sprd* 2>/dev/null | head -20
+  echo "--- insmod errors"
+  cat /tmp/insmod.err
+  echo "--- log"
+  cat /tmp/status.log
+} > /www/index.txt 2>&1
+cp /www/index.txt /www/index.html
+httpd -h /www -p 80
+log "status page ready"
+# Modem bring-up test (Android's modem_control under bionic, read-only AT queries).
+[ -x /modem-test.sh ] && /modem-test.sh &
+[ -c /dev/pmsg0 ] && cat /www/index.txt > /dev/pmsg0
+
+while true; do sleep 3600; done

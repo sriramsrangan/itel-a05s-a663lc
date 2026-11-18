@@ -1,0 +1,10 @@
+#!/bin/sh
+# Write the call box state to pmsg (kept across a reboot in /sys/fs/pstore/pmsg-ramoops-0) every minute
+# for the first 15 minutes, so a boot that cannot be reached over the network can still be diagnosed.
+for i in $(seq 1 15); do
+  sleep 30
+  l="$(cut -d' ' -f1 /proc/uptime) PVDEBIAN-UP $(cat /etc/callbox-build 2>/dev/null): procs $(for p in modem_control cp_diskserver refnotify wpa_supplicant sshd chronyd; do pidof $p >/dev/null && printf '%s ' $p; done)$(pgrep -f callbox.agent >/dev/null && echo agent); addr: $(ip -4 -o addr show 2>/dev/null | awk '$2!="lo"{print $2"="$4}' | sed -E 's/([0-9]+\.[0-9]+)\.[0-9]+\.[0-9]+/\1.x.x/g' | tr '\n' ' '); default: $(ip route show default 2>/dev/null | awk '{print $5"/"$NF}' | tr '\n' ' '); log: $(tail -2 /var/log/messages 2>/dev/null | cut -c1-140 | tr '\n' '|')"
+  [ -c /dev/pmsg0 ] && echo "$l" > /dev/pmsg0
+  echo "$l" > /dev/kmsg
+  sleep 30
+done

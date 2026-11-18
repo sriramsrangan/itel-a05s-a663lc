@@ -1,0 +1,26 @@
+#!/bin/sh
+# One-time start-up for busybox init.
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+mountpoint -q /proc || mount -t proc proc /proc
+mountpoint -q /sys || mount -t sysfs sysfs /sys
+mountpoint -q /dev || { mount -t tmpfs -o mode=755 tmpfs /dev; }
+mkdir -p /dev/pts /dev/shm; mount -t devpts -o gid=5,mode=620 devpts /dev/pts; mount -t tmpfs tmpfs /dev/shm
+mount -t tmpfs -o mode=755 tmpfs /run; mount -t tmpfs tmpfs /tmp
+mount -o remount,rw / 2>/dev/null
+/usr/bin/busybox mdev -s
+[ -c /dev/kmsg ] || mknod /dev/kmsg c 1 11
+mkdir -p /run/callbox /run/sshd /run/wpa_supplicant /var/lib/callbox /var/log /run/chrony; chmod 700 /run/callbox /var/lib/callbox
+hostname -F /etc/hostname
+ip link set lo up
+printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > /etc/resolv.conf
+[ -s /etc/ssh/ssh_host_ed25519_key ] || ssh-keygen -A >/dev/null 2>&1
+echo "7 4 1 7" > /proc/sys/kernel/printk
+/opt/callbox/sbin/callbox-prepare-android.sh 2>&1 | logger -t android-prep
+( /opt/callbox/sbin/callbox-wifi-modules.sh 2>&1 | logger -t wifi-modules ) &
+if [ -e /etc/callbox-install-to-disk ]; then
+  ( /opt/callbox/sbin/callbox-install-to-disk ) &
+fi
+if [ -e /etc/callbox-ram-test ]; then
+  ( sleep 2700; [ -e /run/stay ] || { echo "PVDEBIAN-UP RAM test fallback reboot" > /dev/pmsg0; sync; /usr/bin/busybox reboot -f; } ) &
+fi
+exit 0
