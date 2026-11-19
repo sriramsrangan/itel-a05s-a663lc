@@ -55,8 +55,8 @@ A device release changes boot-time behaviour, so it is always applied by a resta
 
 *Each command runs from this directory.*
 
-- `./test.sh` runs every test: the init entries, the scripts, the bundle, the stock tables and the screen timeout's KMS layouts.
+- `./test.sh` runs every test: the init entries, the scripts, the bundle, the stock tables, the screen timeout's KMS layouts, the signature checker and the provisioning step.
 - `./build-bundle.sh [DIR]` writes `DIR/callbox-device-<VERSION>.tar.gz` (default `dist/`), byte for byte the same for the same sources.
 - `sh install.sh --root DIR` installs this release into an image being built (`../make-rootfs.sh` does this). `sh install.sh` on the phone, as root, is for recovery only; the app's updater installs device releases.
 
-The image build installs this layer from the checkout, then the app from a signed app release (see `../../DISTRIBUTION.md`).
+The image build installs this layer from the checkout, then the app from a signed app release, with a placeholder gateway address and no device key; `../provision-device-key.sh <phone address> <gateway URL>` sets both after flashing (see `../../DISTRIBUTION.md`). No deployment value is kept in this repository, and `tests/test_provision.py` checks that.

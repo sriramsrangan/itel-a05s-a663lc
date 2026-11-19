@@ -11,14 +11,15 @@
 #
 # The app bundle and its signature are the files the release store holds (callbox-agent-<version>.tar.gz
 # and callbox-agent-<version>.tar.gz.sig). The bundle is refused unless its signature verifies with
-# rootfs/release.pub, the same key the phone's updater uses. CALLBOX_BASE_URL overrides the gateway
-# address written into /etc/callbox/agent.toml.
+# rootfs/release.pub, the same key the phone's updater uses. The image carries no deployment value:
+# /etc/callbox/agent.toml gets a placeholder gateway address (an .invalid name, which never resolves),
+# and provision-device-key.sh sets the real address together with the device key after flashing.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ID=${1:?usage: rootfs/make-rootfs.sh <id> <callbox-agent-X.Y.Z.tar.gz> [signature]}
 APP_BUNDLE=${2:?give the signed app bundle, callbox-agent-<version>.tar.gz}
 APP_SIG=${3:-$APP_BUNDLE.sig}
-BASE_URL=${CALLBOX_BASE_URL:-https://hm-gateway-804609470418.asia-south1.run.app}
+BASE_URL=https://callbox-gateway.invalid  # placeholder; set on the phone by provision-device-key.sh
 DEV=rootfs/callbox-device
 PUB=rootfs/release.pub
 
@@ -41,8 +42,8 @@ cp -a vendor_dlkm/wcn_bsp.ko vendor_dlkm/sprd_wlan_combo.ko "$ST/usr/lib/modules
 # Access and networks.
 cat ~/.ssh/id_ed25519.pub > "$ST/root/.ssh/authorized_keys"; chmod 700 "$ST/root/.ssh"; chmod 600 "$ST/root/.ssh/authorized_keys"
 python3 -I make-wpa-conf.py "$ST/etc/wpa_supplicant/wpa_supplicant-wlan0.conf" >/dev/null; chmod 600 "$ST/etc/wpa_supplicant/wpa_supplicant-wlan0.conf"
-# App settings: the release's template with the gateway address. No key: the app does nothing until
-# /etc/callbox/device.key is provisioned.
+# App settings: the release's template with the placeholder gateway address. No key and no real
+# address: the app does nothing until provision-device-key.sh has set both.
 sed "s#^base_url = \"\"#base_url = \"$BASE_URL\"#" build/callbox-bundles/app/etc/callbox/agent.toml > "$ST/etc/callbox/agent.toml"
 grep -q "^base_url = \"$BASE_URL\"" "$ST/etc/callbox/agent.toml" || { echo "agent.toml template has no empty base_url line"; exit 1; }
 cat > "$ST/etc/fstab" <<'FSTAB'
@@ -71,4 +72,4 @@ rm -f build/rootfs-overlay.tar
 mkdir -p out; limactl copy deb:/srv/build/callbox-rootfs-$ID.tar.gz out/
 limactl shell deb -- sudo rm -f /srv/build/callbox-rootfs-$ID.tar.gz
 shasum -a 256 out/callbox-rootfs-$ID.tar.gz
-echo "next: flash as in DISTRIBUTION.md, then rootfs/provision-device-key.sh <phone address> (no jobs until then)"
+echo "next: flash as in DISTRIBUTION.md, then rootfs/provision-device-key.sh <phone address> <gateway URL> (no jobs until then)"
