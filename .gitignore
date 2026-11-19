@@ -63,3 +63,9 @@ unlock/recovery-kit/
 
 # Keep the small generic boot-control block (needed by the boot process)
 !debian/native/initramfs/bcab-slot-a.bin
+
+# Private device notes and the superseded publication bundle (kept local)
+/PHONE_UNLOCK_HANDOFF.md
+/PHONE_UNLOCK_SHA256SUMS.txt
+/publication/
+unlock/tmp/
