@@ -1,0 +1,26 @@
+# Call box init (busybox init), from the device layer (callbox-device in the itel A05s toolkit). This
+# kernel has no devtmpfs and no CONFIG_FHANDLE, so systemd and udev cannot run; services are started and
+# restarted from here instead. Each runs under callbox-svc, which logs to syslog and waits before a restart.
+# Installed with the device bundle; the call box app's updater replaces /etc/inittab when a device release
+# changes it and restarts the phone. Device scripts are under /opt/callbox-device/current; the app's
+# services (vbc, agent, updater: python3 -m callbox.<name>) run from /opt/callbox/current, which
+# callbox-svc puts on PYTHONPATH.
+::sysinit:/opt/callbox-device/current/sbin/callbox-sysinit
+::respawn:/opt/callbox-device/current/sbin/callbox-svc mdev /usr/bin/busybox mdev -df
+::respawn:/opt/callbox-device/current/sbin/callbox-svc syslogd /usr/bin/busybox syslogd -n -O /var/log/messages -s 4000 -b 4
+::respawn:/opt/callbox-device/current/sbin/callbox-svc klogd /usr/bin/busybox klogd -n
+::respawn:/opt/callbox-device/current/sbin/callbox-svc modem-control /android/bin/modem_control
+::respawn:/opt/callbox-device/current/sbin/callbox-svc cp-diskserver /opt/callbox-device/current/sbin/callbox-after-modem /android/bin/cp_diskserver
+::respawn:/opt/callbox-device/current/sbin/callbox-svc refnotify /opt/callbox-device/current/sbin/callbox-after-modem /android/bin/refnotify
+::respawn:/opt/callbox-device/current/sbin/callbox-svc vbc /usr/bin/python3 -m callbox.vbc
+::respawn:/opt/callbox-device/current/sbin/callbox-svc agent /usr/bin/python3 -m callbox.agent
+::respawn:/opt/callbox-device/current/sbin/callbox-svc updater /usr/bin/python3 -m callbox.updater
+::respawn:/opt/callbox-device/current/sbin/callbox-svc wpa /opt/callbox-device/current/sbin/callbox-after-wlan /usr/sbin/wpa_supplicant -D nl80211 -i wlan0 -c /etc/wpa_supplicant/wpa_supplicant-wlan0.conf
+::respawn:/opt/callbox-device/current/sbin/callbox-svc dhcp-wlan0 /opt/callbox-device/current/sbin/callbox-after-wlan /usr/bin/busybox udhcpc -f -i wlan0 -s /opt/callbox-device/current/sbin/callbox-udhcpc -t 5 -T 3 -A 10
+::respawn:/opt/callbox-device/current/sbin/callbox-svc wifi-route /opt/callbox-device/current/sbin/callbox-wifi-route
+::respawn:/opt/callbox-device/current/sbin/callbox-svc sshd /usr/sbin/sshd -D -e
+::respawn:/opt/callbox-device/current/sbin/callbox-svc chronyd /usr/sbin/chronyd -d -s
+::respawn:/opt/callbox-device/current/sbin/callbox-svc screen-timeout /opt/callbox-device/current/sbin/callbox-screen-timeout
+::once:/opt/callbox-device/current/sbin/callbox-boot-report
+::shutdown:/opt/callbox-device/current/sbin/callbox-shutdown
+::restart:/usr/bin/busybox init

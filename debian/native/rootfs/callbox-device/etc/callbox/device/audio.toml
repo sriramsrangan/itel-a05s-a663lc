@@ -1,0 +1,102 @@
+# /etc/callbox/device/audio.toml - the call audio recipe of the itel A05s (Unisoc SC9863A), shipped
+# with the device layer (callbox-device) as the template of the phone's /etc/callbox/device/audio.toml.
+# That file is a kept settings file: written from this template on the first device install, then merged
+# with each new device release's template (new keys and steps added, values never changed on the phone
+# brought up to date, values changed on the phone kept). The call box app reads it for the hardware
+# facts below (cards, devices, routes, mixer controls, sample rates) and takes only its own settings (uplink_verified, capture_stall_seconds, call_type_wait_seconds) from
+# /etc/callbox/audio.toml. The modem sound card is "saudiolte"; its number changes between boots, so it
+# is always addressed by name. Commands run without a shell; failures are logged and never stop a call.
+#
+# The stock audio tuning tables the modem downloads at modem start (VBC commands 21 to 25) are beside
+# this template in the release's audio_params/, linked on the phone as /etc/callbox/device/audio_params (audiodsp, cvs, audioarm, dspcodec, from the stock firmware's
+# odm/etc/audio_params, checked by SHA256SUMS).
+
+# Loudspeaker and earpiece stay off: without the Android audio HAL the codec is never routed to them.
+# These keep them off if anything else touches the codec.
+mute = [
+  "amixer -q -c sprdphone cset name='Speaker Function' Off",
+  "amixer -q -c sprdphone cset name='Speaker1 Function' Off",
+  "amixer -q -c sprdphone cset name='Earpiece Function' Off",
+]
+
+# Virt Output Switch (set by the stock HAL's voip thread) is what starts the wideband path: without
+# it the modem card moved no data on any wideband VoLTE call; with it, capture and playback run at
+# real time (19 November 2026, 15:15).
+# In-call path. The modem card's PCMs (saudiolte) only move while the voice-band codec path is up,
+# as the vendor audio HAL sets it for every call (Android mixer state during a 121 call, 18 November
+# 2026): the VBC handed to the LTE DSP (VBC Switch WTLCP), the ADC clocked from the microphones,
+# and the voice PCM held open (voice_pcm below). Without these, aplay into the uplink fails with
+# "Input/output error" after the ALSA timeout and the downlink capture is empty (19 November 2026).
+# The earpiece and loudspeaker stay off (mute above runs first and they are never switched on).
+before_call = [
+  "amixer -q -c sprdphone cset name='VBC Switch' WTLCP",
+  "amixer -q -c sprdphone cset name='ADC LRCLK Select' invert",
+  "amixer -q -c sprdphone cset name='ADC1 LRCLK Select' invert",
+  "amixer -q -c sprdphone cset name='VBC ADCL DG Set' 0",
+  "amixer -q -c sprdphone cset name='VBC ADCR DG Set' 0",
+  "amixer -q -c sprdphone cset name='ADCL Capture Volume' 6",
+  "amixer -q -c sprdphone cset name='ADCR Capture Volume' 6",
+  "amixer -q -c sprdphone cset name='Virt HP Jack Switch' off",
+  "amixer -q -c sprdphone cset name='Mic Function' on",
+  "amixer -q -c sprdphone cset name='Aux Mic Function' on",
+  "amixer -q -c sprdphone cset name='ADCL Mixer MainMICADCL Switch' on",
+  "amixer -q -c sprdphone cset name='ADCR Mixer AuxMICADCR Switch' on",
+  "amixer -q -c sprdphone cset name='Virt Output Switch' on",
+]
+after_call = [
+  "amixer -q -c sprdphone cset name='Virt Output Switch' off",
+  "amixer -q -c saudiolte cset name='PCM MIXER Route' 0",
+  "amixer -q -c saudiolte cset name='PCM APPTYPE' 0",
+  "amixer -q -c saudiolte cset name='UL MIXERGAIN' 0",
+  "amixer -q -c saudiolte cset name='PCM CAPTURE Route' 0",
+  "amixer -q -c sprdphone cset name='ADCL Mixer MainMICADCL Switch' off",
+  "amixer -q -c sprdphone cset name='ADCR Mixer AuxMICADCR Switch' off",
+  "amixer -q -c sprdphone cset name='Mic Function' off",
+  "amixer -q -c sprdphone cset name='Aux Mic Function' off",
+  "amixer -q -c sprdphone cset name='VBC Switch' AP",
+]
+
+# Run once the call is answered. The modem resets the saudiolte routes when a call is set up, and
+# the driver passes a value to the modem only when it changes, so each control is first set to
+# another value. Uplink injection: PCM MIXER Route {route} (chosen per call type, routes below)
+# with UL MIXERGAIN 16384 mixes playback on device 1 into the uplink. PCM CAPTURE Route: 0 downlink,
+# 1 uplink, 2 both.
+on_answer = [
+  "amixer -q -c sprdphone cset name='Virt Output Switch' on",
+  "amixer -q -c saudiolte cset name='PCM MIXER Route' 0",
+  "amixer -q -c saudiolte cset name='PCM MIXER Route' {route}",
+  "amixer -q -c saudiolte cset name='UL MIXERGAIN' 0",
+  "amixer -q -c saudiolte cset name='UL MIXERGAIN' 16384",
+  "amixer -q -c saudiolte cset name='DL MIXERGAIN' 1",
+  "amixer -q -c saudiolte cset name='DL MIXERGAIN' 0",
+  "amixer -q -c saudiolte cset name='PCM CAPTURE Route' 1",
+  "amixer -q -c saudiolte cset name='PCM CAPTURE Route' 0",
+  "amixer -q -c sprdphone cset name='ADCL Capture Volume' 0",
+  "amixer -q -c sprdphone cset name='ADCR Capture Volume' 0",
+]
+
+# PCM MIXER Route per call type, found at answer: volte-wb (the modem asked for 16000 Hz), volte
+# (the modem's VoLTE media line appeared in the kernel log) or cs (neither: circuit-switched,
+# including the modem's own fallback when LTE or VoLTE is unavailable). The stock HAL's "voice_tx"
+# path uses route 2 with device 2 on every call type; it carried the whole message to a mobile on
+# wideband VoLTE (19 November 2026, 15:22). Route 1 with device 1 also worked (15:20).
+routes = { volte-wb = 2, volte = 2, cs = 2 }
+
+# The voice PCM the vendor HAL opens for every call (pcm_modem_dl and pcm_modem_ul, "vaudio"). The
+# VBC service holds it open, without data, from VBC command 11 to 13, as the HAL does, and moves it
+# to the rate of command 15 in place before replying.
+voice_pcm = "hw:CARD=sprdphone,DEV=1"
+voice_pcm_rate = 8000
+voice_pcm_owner = "vbc"
+
+# Playback into the uplink, as the stock HAL's voice_tx path: device 2, 8000 Hz, 2 channels (the
+# mono message copied to both). The modem reads 32,000 bytes a second, so mono at 8000 Hz played
+# at double speed (the garbled CS calls of 19 November 2026).
+playback = "aplay -q -D hw:CARD=saudiolte,DEV=2 {file}"
+playback_rate = 8000
+playback_channels = 2
+
+# Capture of the downlink: raw S16_LE mono on stdout. Starting playback stalls it (no data, no
+# error); the app restarts it after its capture_stall_seconds without data.
+capture = "arecord -q -D hw:CARD=saudiolte,DEV=0 -f S16_LE -r 8000 -c 1 -t raw"
+capture_rate = 8000

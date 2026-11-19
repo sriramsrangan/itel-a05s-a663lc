@@ -1,6 +1,0 @@
-# The LTE data interface is configured by callbox-agent from AT+CGCONTRDP, not by networkd.
-[Match]
-Name=seth_lte*
-
-[Link]
-Unmanaged=yes
