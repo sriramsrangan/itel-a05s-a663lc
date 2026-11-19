@@ -16,7 +16,7 @@ The distribution is three parts: a Debian trixie arm64 base, this handset model'
 
 ## Build
 
-*Run from `debian-setup/native`.*
+*Run from `debian/native`.*
 
 1. `limactl shell deb -- sudo bash $PWD/rootfs/build-base.sh /srv/build/callbox-base.tar.zst` builds the Debian base.
 2. `bash build-test-boot.sh <id>` stages the Android modem pieces in `build/ramdisk` (the root filesystem step copies them from there).

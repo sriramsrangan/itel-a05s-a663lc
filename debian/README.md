@@ -31,10 +31,10 @@ For another handset, identify its exact model, firmware and serial. Keep that ha
 ## Install
 
 1. Connect the phone with USB debugging authorised. Run `adb devices -l` from this workspace and check the model and serial before installing.
-2. Download the Termux APK from the [F-Droid Termux package page](https://f-droid.org/en/packages/com.termux/) into this directory. This phone used `com.termux_1022.apk`, saved locally as `debian-setup/termux.apk`. From the workspace root, install and launch it:
+2. Download the Termux APK from the [F-Droid Termux package page](https://f-droid.org/en/packages/com.termux/) into this directory. This phone used `com.termux_1022.apk`, saved locally as `debian/termux.apk`. From the workspace root, install and launch it:
 
    ```sh
-   adb -s YOURSERIAL install debian-setup/termux.apk
+   adb -s YOURSERIAL install debian/termux.apk
    adb -s YOURSERIAL shell am start -n com.termux/.app.TermuxActivity
    ```
 

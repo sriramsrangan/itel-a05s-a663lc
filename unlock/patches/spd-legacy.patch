@@ -1,0 +1,42 @@
+diff --git a/common.c b/common.c
+index 812a4b8..a4db4a6 100644
+--- a/common.c
++++ b/common.c
+@@ -340,6 +340,15 @@ int send_msg(spdio_t* io) {
+ 			io->endp_out, io->enc_buf, io->enc_len, &ret, io->timeout);
+ 		if (err < 0)
+ 			ERR_EXIT("usb_send failed : %s\n", libusb_error_name(err));
++		/* USB high-speed bulk transfers ending exactly on a 512-byte packet
++		 * need a zero-length packet to delimit this protocol message. */
++		if (io->enc_len > 0 && io->enc_len % 512 == 0) {
++			int dummy = 0;
++			err = libusb_bulk_transfer(io->dev_handle, io->endp_out,
++				NULL, 0, &dummy, io->timeout);
++			if (err < 0) ERR_EXIT("usb zero-length packet failed : %s\n", libusb_error_name(err));
++			DBG_LOG("TRACE sent USB zero-length packet\n");
++		}
+ 	}
+ #else
+ 	ret = call_Write(io->handle, io->enc_buf, io->enc_len);
+@@ -528,11 +537,13 @@ void send_file(spdio_t* io, const char* fn,
+ 
+ 	WRITE32_BE(data, start_addr);
+ 	WRITE32_BE(data + 1, size);
++	DBG_LOG("TRACE start file=%s addr=0x%x bytes=%zu\n", fn, start_addr, size);
+ 
+ 	encode_msg(io, BSL_CMD_START_DATA, data, 4 * 2);
+ 	if (send_and_check(io)) { free(mem); return; }
+ 
+ 	for (i = 0; i < size; i += n) {
++		if ((i / step) % 32 == 0) DBG_LOG("TRACE sent=%u of %zu\n", i, size);
+ 		n = size - i;
+ 		// n = spd_transcode_max(mem + i, size - i, 2048 - 2 - 6);
+ 		if (n > step) n = step;
+@@ -542,6 +553,7 @@ void send_file(spdio_t* io, const char* fn,
+ 	free(mem);
+ 
+ 	if (end_data) {
++		DBG_LOG("TRACE end-data file=%s\n", fn);
+ 		encode_msg(io, BSL_CMD_END_DATA, NULL, 0);
+ 		send_and_check(io);
+ 	}

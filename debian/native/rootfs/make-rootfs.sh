@@ -2,7 +2,7 @@
 # Assemble the call box root filesystem from the Debian base (build-base.sh) plus this handset model's
 # Android modem pieces, Wi-Fi firmware, the callbox agent, an SSH key, Wi-Fi keys and the device key.
 # Output: out/callbox-rootfs-<id>.tar.gz (private: holds derived Wi-Fi keys and the device key).
-# Usage: rootfs/make-rootfs.sh <id> [--no-key]     (run from debian-setup/native on the Mac)
+# Usage: rootfs/make-rootfs.sh <id> [--no-key]     (run from debian/native on the Mac)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ID=$1; NOKEY=${2:-}

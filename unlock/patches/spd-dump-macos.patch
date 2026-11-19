@@ -1,0 +1,37 @@
+diff --git a/src/spd_dump.c b/src/spd_dump.c
+index de54ad4..ed834ae 100644
+--- a/src/spd_dump.c
++++ b/src/spd_dump.c
+@@ -1285,7 +1285,31 @@ int main(int argc, char **argv) {
+ 	usleep(300000); // let freshly-enumerated BootROM settle
+ 
+ 	while (argc > 1) {
+-		if (!strcmp(argv[1], "raw_fdl")) {
++		if (!strcmp(argv[1], "probe_fdl1")) {
++			encode_msg(io, BSL_CMD_CHECK_BAUD, NULL, 1);
++			send_msg(io);
++			ret = recv_msg(io);
++			if (!ret) ERR_EXIT("No response to FDL1 probe\n");
++			fprintf(stderr, "FDL1 probe response type: 0x%04x\n", recv_type(io));
++			if (recv_type(io) == BSL_REP_VER) print_string(stderr, io->raw_buf + 4, READ16_BE(io->raw_buf + 2));
++			argc--; argv++;
++		} else if (!strcmp(argv[1], "send_fdl1")) {
++			const char *fn; uint32_t addr;
++			if (argc <= 3) ERR_EXIT("bad command\n");
++			fn = argv[2]; addr = str_to_addr(argv[3], "ram", ram_addr);
++			send_file(io, fn, addr, 1, blk_size ? blk_size : 528, 0, 0);
++			fprintf(stderr, "[send_fdl1] sent %s @0x%08x without EXEC\n", fn, addr);
++			argc -= 3; argv += 3;
++		} else if (!strcmp(argv[1], "exec_fdl1")) {
++			/* One EXEC of images already uploaded to the current FDL1 session.
++			 * A timeout is inconclusive because the boot chain can stop USB. */
++			encode_msg(io, BSL_CMD_EXEC_DATA, NULL, 0);
++			send_msg(io);
++			ret = recv_msg_timeout(io, 15000);
++			if (!ret) ERR_EXIT("EXEC sent; no response, outcome unknown\n");
++			fprintf(stderr, "EXEC response type: 0x%04x\n", recv_type(io));
++			argc--; argv++;
++		} else if (!strcmp(argv[1], "raw_fdl")) {
+ 			// send file + EXEC on the CURRENT stage (no handshake), for
+ 			// when FDL1 is already alive and ACKing
+ 			const char *fn; uint32_t addr;

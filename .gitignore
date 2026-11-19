@@ -36,3 +36,30 @@ __pycache__/
 *.pem
 *.key
 *service-account*.json
+
+# --- itel A05s toolkit: large and device-specific artefacts kept local, never published ---
+# Debian build artefacts and stock firmware (large; firmware re-hosted via GitHub Releases)
+debian/firmware/
+debian/native/out/
+debian/native/dl/
+debian/native/build/
+debian/native/stock/
+debian/native/vendor_dlkm/
+debian/native/android-modem/
+debian/native/initramfs/modules-extra/
+debian/native/audio-lab/
+# Release staging (split firmware parts)
+firmware/release-assets/
+# Unlock: this handset's own dumped images and heavy third-party deps (kept local)
+unlock/working/
+unlock/vendor/
+unlock/packages/
+unlock/tools/
+unlock/reference/
+unlock/recovery-kit/
+*.img
+*.pac
+*.bin
+
+# Keep the small generic boot-control block (needed by the boot process)
+!debian/native/initramfs/bcab-slot-a.bin
