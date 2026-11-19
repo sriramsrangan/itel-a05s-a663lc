@@ -1,13 +1,14 @@
 # /etc/callbox/device/audio.toml - the call audio recipe of the itel A05s (Unisoc SC9863A), shipped
-# with the device layer (callbox-device). /etc/callbox/device is a link to the current device release,
-# so this file is replaced with every device release; never edit it on the phone. The call box app reads
-# it for the hardware facts below (cards, devices, routes, mixer controls, sample rates) and takes only
-# its own settings (uplink_verified, capture_stall_seconds, call_type_wait_seconds) from
+# with the device layer (callbox-device) as the template of the phone's /etc/callbox/device/audio.toml.
+# That file is a kept settings file: written from this template on the first device install, then merged
+# with each new device release's template (new keys and steps added, values never changed on the phone
+# brought up to date, values changed on the phone kept). The call box app reads it for the hardware
+# facts below (cards, devices, routes, mixer controls, sample rates) and takes only its own settings (uplink_verified, capture_stall_seconds, call_type_wait_seconds) from
 # /etc/callbox/audio.toml. The modem sound card is "saudiolte"; its number changes between boots, so it
 # is always addressed by name. Commands run without a shell; failures are logged and never stop a call.
 #
 # The stock audio tuning tables the modem downloads at modem start (VBC commands 21 to 25) are beside
-# this file in audio_params/ (audiodsp, cvs, audioarm, dspcodec, from the stock firmware's
+# this template in the release's audio_params/, linked on the phone as /etc/callbox/device/audio_params (audiodsp, cvs, audioarm, dspcodec, from the stock firmware's
 # odm/etc/audio_params, checked by SHA256SUMS).
 
 # Loudspeaker and earpiece stay off: without the Android audio HAL the codec is never routed to them.
@@ -70,6 +71,8 @@ on_answer = [
   "amixer -q -c saudiolte cset name='DL MIXERGAIN' 0",
   "amixer -q -c saudiolte cset name='PCM CAPTURE Route' 1",
   "amixer -q -c saudiolte cset name='PCM CAPTURE Route' 0",
+  "amixer -q -c sprdphone cset name='ADCL Capture Volume' 0",
+  "amixer -q -c sprdphone cset name='ADCR Capture Volume' 0",
 ]
 
 # PCM MIXER Route per call type, found at answer: volte-wb (the modem asked for 16000 Hz), volte

@@ -70,7 +70,8 @@ def test_scripts_parse_and_use_device_paths():
     svc = open(os.path.join(HERE, "sbin", "callbox-svc")).read()
     assert "PYTHONPATH=/opt/callbox/current" in svc  # the app's package
     sysinit = open(os.path.join(HERE, "sbin", "callbox-sysinit")).read()
-    assert "ln -sfn /opt/callbox-device/current/etc/callbox/device /etc/callbox/device" in sysinit
+    assert "ln -sfn /opt/callbox-device/current/etc/callbox/device/audio_params /etc/callbox/device/audio_params" in sysinit
+    assert "[ -e /etc/callbox/device/audio.toml ] || install -m 600" in sysinit  # never over the kept recipe
 
 
 def test_no_systemd():

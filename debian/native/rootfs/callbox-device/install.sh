@@ -8,8 +8,9 @@
 #                                rolled back without a heartbeat), so this is for recovery only.
 #
 # Layout: /opt/callbox-device/releases/<VERSION>/ holds the release; /opt/callbox-device/current
-# points at it; /etc/callbox/device links to current/etc/callbox/device (audio.toml and the audio
-# tuning tables the app reads). /etc/inittab is the release's; the one before is kept as
+# points at it. /etc/callbox/device/audio_params links to the current release's audio tuning tables;
+# /etc/callbox/device/audio.toml (the audio recipe the app reads) is a kept settings file, written
+# from the release's template only when absent (the app's updater merges later templates into it). /etc/inittab is the release's; the one before is kept as
 # /etc/inittab.callbox-previous. Nothing else under /etc/callbox is touched, and no secret is written.
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -47,11 +48,13 @@ rm -rf "$REL"; mv "$STAGE" "$REL"
 ln -sfn "releases/$VERSION" "$OPT/.current.tmp"; mv -T "$OPT/.current.tmp" "$OPT/current" 2>/dev/null || { rm -f "$OPT/current"; mv "$OPT/.current.tmp" "$OPT/current"; }
 
 # The device settings the app reads.
-install -d -m 700 "$ROOT/etc/callbox"
-if [ -e "$ROOT/etc/callbox/device" ] && [ ! -L "$ROOT/etc/callbox/device" ]; then
-  echo "/etc/callbox/device is not a link; leaving it" >&2; exit 1
+install -d -m 700 "$ROOT/etc/callbox" "$ROOT/etc/callbox/device"
+ln -sfn /opt/callbox-device/current/etc/callbox/device/audio_params "$ROOT/etc/callbox/device/audio_params"
+if [ -e "$ROOT/etc/callbox/device/audio.toml" ]; then
+  echo "kept existing /etc/callbox/device/audio.toml (the app's updater merges new templates into it)"
+else
+  install -m 600 "$REL/etc/callbox/device/audio.toml" "$ROOT/etc/callbox/device/audio.toml"
 fi
-ln -sfn /opt/callbox-device/current/etc/callbox/device "$ROOT/etc/callbox/device"
 
 # The boot report on the PATH (it was the app's before the device layer).
 install -d -m 755 "$ROOT/usr/local/sbin"

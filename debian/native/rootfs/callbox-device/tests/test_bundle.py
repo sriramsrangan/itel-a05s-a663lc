@@ -68,6 +68,11 @@ def test_audio_recipe_holds_only_device_keys():
         recipe = tomllib.load(fh)
     assert set(recipe) == DEVICE_KEYS and not set(recipe) & APP_KEYS
     assert "amixer -q -c sprdphone cset name='Virt Output Switch' on" in recipe["before_call"]
+    # The microphone path stays powered but silent once answered (agent 1.0.6, the phone's recipe).
+    assert recipe["on_answer"][-2:] == ["amixer -q -c sprdphone cset name='ADCL Capture Volume' 0",
+                                        "amixer -q -c sprdphone cset name='ADCR Capture Volume' 0"]
+    assert {"amixer -q -c sprdphone cset name='ADCL Capture Volume' 6",
+            "amixer -q -c sprdphone cset name='ADCR Capture Volume' 6"} <= set(recipe["before_call"])
     assert "{route}" in " ".join(recipe["on_answer"])
     assert recipe["voice_pcm"] == "hw:CARD=sprdphone,DEV=1" and recipe["voice_pcm_owner"] == "vbc"
 
@@ -86,7 +91,12 @@ def test_install_sh_into_a_root(tmp_path):
     version = open(os.path.join(HERE, "VERSION")).read().strip()
     opt = root / "opt/callbox-device"
     assert os.readlink(opt / "current") == f"releases/{version}"
-    assert os.readlink(root / "etc/callbox/device") == "/opt/callbox-device/current/etc/callbox/device"
+    assert os.readlink(root / "etc/callbox/device/audio_params") == "/opt/callbox-device/current/etc/callbox/device/audio_params"
+    assert (root / "etc/callbox/device/audio.toml").read_text() == (bundle / "etc/callbox/device/audio.toml").read_text()
+    # Installed again (by hand, for recovery): the kept recipe is not overwritten.
+    (root / "etc/callbox/device/audio.toml").write_text("# tuned on the phone\n")
+    assert subprocess.run(["sh", str(bundle / "install.sh"), "--root", str(root)], capture_output=True).returncode == 0
+    assert (root / "etc/callbox/device/audio.toml").read_text() == "# tuned on the phone\n"
     assert (root / "etc/inittab").read_text() == (bundle / "inittab").read_text()
     assert "/opt/callbox/current/sbin/callbox-svc agent" in (root / "etc/inittab.callbox-previous").read_text()
     assert (root / "etc/callbox/agent.toml").read_text() == "live = true\n"  # the app's settings untouched

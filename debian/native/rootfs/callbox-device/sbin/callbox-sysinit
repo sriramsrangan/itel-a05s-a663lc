@@ -11,9 +11,11 @@ mount -o remount,rw / 2>/dev/null
 [ -c /dev/kmsg ] || mknod /dev/kmsg c 1 11
 mkdir -p /run/callbox /run/sshd /run/wpa_supplicant /var/lib/callbox /var/log /run/chrony; chmod 700 /run/callbox /var/lib/callbox
 hostname -F /etc/hostname
-# The device settings the app reads (/etc/callbox/device: audio.toml and the audio tuning tables) are the
-# current device release's; the installer and the updater make this link, and a boot repairs it.
-[ -e /etc/callbox/device ] || ln -sfn /opt/callbox-device/current/etc/callbox/device /etc/callbox/device
+# The device settings the app reads: the tables link and the kept recipe. The installer and the updater
+# make them; a boot repairs them (the recipe from the current release's template only when missing).
+mkdir -p /etc/callbox/device && chmod 700 /etc/callbox/device
+[ -e /etc/callbox/device/audio_params ] || ln -sfn /opt/callbox-device/current/etc/callbox/device/audio_params /etc/callbox/device/audio_params
+[ -e /etc/callbox/device/audio.toml ] || install -m 600 /opt/callbox-device/current/etc/callbox/device/audio.toml /etc/callbox/device/audio.toml
 ln -sfn /opt/callbox-device/current/sbin/callbox-boot-report /usr/local/sbin/callbox-boot-report 2>/dev/null
 ip link set lo up
 printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > /etc/resolv.conf

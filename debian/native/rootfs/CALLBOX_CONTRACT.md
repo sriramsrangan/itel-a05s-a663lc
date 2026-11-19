@@ -12,9 +12,10 @@ The device layer writes only these paths, and the app only reads them.
 
 - `/opt/callbox-device/releases/<version>/` and `/opt/callbox-device/current` (a link to one release).
 - `/etc/inittab`: the device release's `inittab`. The previous one is kept as `/etc/inittab.callbox-previous`.
-- `/etc/callbox/device`: a link to `/opt/callbox-device/current/etc/callbox/device`, holding `audio.toml` (the hardware audio recipe) and `audio_params/` (`audiodsp`, `cvs`, `audioarm`, `dspcodec` and `SHA256SUMS`).
+- `/etc/callbox/device/audio_params`: a link to the current release's tables (`audiodsp`, `cvs`, `audioarm`, `dspcodec` and `SHA256SUMS`).
+- `/etc/callbox/device/audio.toml`: the hardware audio recipe, a kept settings file. It is written from the release's `etc/callbox/device/audio.toml` template when missing; later templates are merged into it by the app's updater (new keys and steps added, values never changed on the phone brought up to date, values changed on the phone kept).
 
-The app writes only `/opt/callbox`, `/var/lib/callbox`, `/run/callbox` and its own settings in `/etc/callbox` (`agent.toml`, `audio.toml`, `release.pub`, `device.key`). Its updater is the one process that installs device releases, so it also switches `/opt/callbox-device/current`, `/etc/callbox/device` and `/etc/inittab`, always from a signed device bundle.
+The app writes only `/opt/callbox`, `/var/lib/callbox`, `/run/callbox` and its own settings in `/etc/callbox` (`agent.toml`, `audio.toml`, `release.pub`, `device.key`). Its updater is the one process that installs device releases, so it also switches `/opt/callbox-device/current`, `/etc/callbox/device` (merging each new recipe template into the kept `audio.toml`) and `/etc/inittab`, always from a signed device bundle.
 
 ## Services
 
