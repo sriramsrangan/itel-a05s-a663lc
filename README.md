@@ -26,8 +26,8 @@ unlock/            Bootloader unlock (CVE-2022-38694 route)
   patches/         Our patches to the upstream spd_dump loaders (macOS build, legacy ZLP fix)
   scripts/         Our helpers: RAM-image prep, U-Boot patching, cross-reference and
                    device-compatibility checks
-debian/            Native Debian distribution and the call box agent
-  native/          Build scripts, initramfs, rootfs and the callbox package
+debian/            Native Debian distribution and the call box device layer
+  native/          Build scripts, initramfs, rootfs and rootfs/callbox-device
   README.md        How the distribution is built and flashed
 firmware/          Where to get the stock ROM (Releases) and its checksums
 DEBIAN_FLASH_*.md  Working logs of the flash and recovery
@@ -52,9 +52,12 @@ afterwards. Full credits to the upstream projects are below.
 
 The stock kernel boots a small ramdisk that switches root to a Debian trixie (arm64)
 userland on `userdata`, while Android's own modem binaries keep the cellular stack alive. The
-`callbox` agent brings the modem up over AT, keeps LTE data and Wi-Fi up, forwards SMS, and
-long-polls a cloud gateway for one call job at a time (it is a pull client; nothing reaches
-into the phone). All deployment-specific values in this repository, such as the gateway URL,
+call box runs as two signed bundles. The device layer in this repository
+(`debian/native/rootfs/callbox-device`) holds busybox init, the start-up scripts, the modem and
+Wi-Fi bring-up, the screen timeout, the hardware audio recipe and the stock audio tuning tables.
+The call box app (released separately) brings the modem up over AT, keeps LTE data up, forwards
+SMS, and long-polls a cloud gateway for one call job at a time (it is a pull client; nothing
+reaches into the phone); its updater installs new releases of both bundles. All deployment-specific values in this repository, such as the gateway URL,
 project names, SIM numbers and recipient addresses, are **placeholders**.
 
 ## Firmware

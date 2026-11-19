@@ -1,0 +1,65 @@
+# Builds and tests the call box device layer (debian/native/rootfs/callbox-device). This repository is
+# public, so nothing here signs or publishes: the bundle is built twice, compared byte for byte and
+# uploaded as an unsigned artefact. helix-messaging's workflow "Call box device release" builds the same
+# commit again, checks it, signs it with the release key it alone holds and publishes it
+# (callbox-device/README.md, Releases).
+
+name: Device bundle
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - debian/native/rootfs/callbox-device/**
+      - debian/native/rootfs/release.pub
+      - .github/workflows/device-bundle.yml
+  pull_request:
+    paths:
+      - debian/native/rootfs/callbox-device/**
+      - debian/native/rootfs/release.pub
+      - .github/workflows/device-bundle.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Test and build the device bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: debian/native/rootfs/callbox-device
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Test
+        run: ./test.sh
+      - name: Build twice and compare
+        id: build
+        run: |
+          a=$(python3 -I tools/build_bundle.py "$RUNNER_TEMP/a" | cut -d' ' -f2)
+          b=$(python3 -I tools/build_bundle.py "$RUNNER_TEMP/b" | cut -d' ' -f2)
+          [ "$a" = "$b" ] || { echo "::error::The bundle is not deterministic ($a, $b)."; exit 1; }
+          version=$(cat VERSION)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sha256=$a" >> "$GITHUB_OUTPUT"
+          {
+            echo "### callbox-device-$version.tar.gz (unsigned)"
+            echo
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- SHA-256: \`$a\`"
+            echo
+            echo "To sign and publish it, run helix-messaging's workflow **Call box device release** with this commit and SHA-256 (only from main)."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: callbox-device-${{ steps.build.outputs.version }}-unsigned
+          path: ${{ runner.temp }}/a/callbox-device-*.tar.gz
+          if-no-files-found: error
+          retention-days: 30

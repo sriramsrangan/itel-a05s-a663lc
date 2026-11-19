@@ -1,0 +1,215 @@
+#!/usr/bin/python3
+"""callbox-screen-timeout: turn the panel off after a period with no button press, and turn it
+back on when any hardware key is pressed.
+
+The call box has no desktop, so nothing drives the display. On this phone (itel A05s, sprd_drm,
+icnl9916 panel) the backlight is set by DSI commands from the panel driver, and with no KMS client
+the display pipeline is never initialised: brightness and bl_power writes then go nowhere
+(19 November 2026). So this service is the KMS client: it becomes DRM master on /dev/dri/card0,
+sets the panel's mode with a plain framebuffer, and turns the screen off and on with the
+connector's DPMS property (the kernel disables and re-enables the DPU, the DSI host and the panel).
+Brightness writes stay as a second measure, made only while the panel is powered. If KMS cannot be
+used, it falls back to the backlight sysfs alone.
+
+The framebuffer belongs to this process: it must keep running (busybox init respawns it).
+
+It watches the gpio-keys (volume, power) and the headset keyboard. We open the input devices
+read-only and never grab them, so the keys keep doing their normal jobs.
+
+Settings live in /etc/callbox/screen.conf (shell-style KEY=value), all optional:
+  TIMEOUT_SECONDS   idle seconds before the screen goes off (default 10)
+  WAKE_ON_START     1 to start with the screen on (default 1)
+"""
+import glob
+import os
+import select
+import struct
+import sys
+import time
+
+BACKLIGHT = "/sys/class/backlight/sprd_backlight"
+CONF = "/etc/callbox/screen.conf"
+EV_KEY = 1
+# struct input_event on 64-bit: struct timeval (2x long), __u16 type, __u16 code, __s32 value
+FMT = "llHHi"
+SZ = struct.calcsize(FMT)
+# What the panel shows while on: navy with a sky blue band (brand colours).
+BANDS = [(0, (0x27, 0x2B, 0x66)), (700, (0x16, 0x9C, 0xD8)), (900, (0x27, 0x2B, 0x66))]
+
+
+def log(msg):
+    print(msg, flush=True)
+
+
+def read_conf(path=CONF):
+    timeout, wake_on_start = 10.0, True
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, val = line.partition("=")
+                key, val = key.strip(), val.strip().strip('"').strip("'")
+                if key == "TIMEOUT_SECONDS":
+                    try:
+                        timeout = max(1.0, float(val))
+                    except ValueError:
+                        pass
+                elif key == "WAKE_ON_START":
+                    wake_on_start = val not in ("0", "false", "no", "")
+    except OSError:
+        pass
+    return timeout, wake_on_start
+
+
+def write_sysfs(path, value):
+    try:
+        with open(path, "w") as f:
+            f.write(str(value))
+        return True
+    except OSError:
+        return False
+
+
+def read_sysfs_int(path, default):
+    try:
+        with open(path) as f:
+            return int(f.read().strip())
+    except (OSError, ValueError):
+        return default
+
+
+class Screen:
+    """Turns the panel on and off: DPMS through KMS first, backlight brightness second.
+
+    Brightness is written only while the panel is powered (before DPMS off, after DPMS on), so
+    the panel driver never sends DSI commands to a powered-down host."""
+
+    def __init__(self, display=None, backlight=BACKLIGHT, write=write_sysfs, read=read_sysfs_int):
+        self.display = display
+        self.backlight = backlight
+        self.write = write
+        self.read = read
+        self.level = None  # brightness to restore on wake
+
+    def _restore_level(self):
+        if not self.level:
+            self.level = self.read(self.backlight + "/max_brightness", 4095) // 2
+        return self.level
+
+    def start(self, on):
+        """Bring the panel to a known state. The first modeset may find the panel as the
+        bootloader left it and skip its init, so a KMS start always runs one full off/on cycle."""
+        current = self.read(self.backlight + "/brightness", 0)
+        if current > 0:
+            self.level = current
+        if self.display is not None:
+            # A non-zero level before the modeset, so the panel does not come up dark.
+            self.write(self.backlight + "/brightness", self._restore_level())
+            try:
+                self.display.setup(BANDS)
+                self.display.off()
+                self.display.on()
+            except OSError as e:
+                log("screen-timeout: KMS setup failed (%s); using the backlight only" % e)
+                self.display = None
+        self.set(on)
+
+    def set(self, on):
+        if on:
+            if self.display is not None:
+                self._dpms(True)
+            self.write(self.backlight + "/bl_power", 0)
+            self.write(self.backlight + "/brightness", self._restore_level())
+        else:
+            current = self.read(self.backlight + "/brightness", 0)
+            if current > 0:
+                self.level = current
+            self.write(self.backlight + "/brightness", 0)
+            if self.display is not None:
+                self._dpms(False)
+            else:
+                # bl_power follows the FB_BLANK values: 0 = unblank (on), 4 = power down (off).
+                self.write(self.backlight + "/bl_power", 4)
+
+    def _dpms(self, on):
+        try:
+            self.display.on() if on else self.display.off()
+        except OSError as e:
+            log("screen-timeout: DPMS %s failed (%s)" % ("on" if on else "off", e))
+
+
+def key_devices():
+    """Input event nodes that report EV_KEY, so we watch buttons and ignore the vibrator etc."""
+    devs = []
+    for cap in sorted(glob.glob("/sys/class/input/event*/device/capabilities/key")):
+        try:
+            with open(cap) as f:
+                bits = f.read().strip()
+        except OSError:
+            continue
+        if bits and set(bits.replace(" ", "")) != {"0"}:
+            node = "/dev/input/" + cap.split("/")[4]
+            if os.path.exists(node):
+                devs.append(node)
+    return devs or ["/dev/input/event0"]
+
+
+def open_display():
+    try:
+        from callbox_device import kms
+        return kms.Display()
+    except (ImportError, OSError) as e:
+        log("screen-timeout: no KMS display (%s); using the backlight only" % e)
+        return None
+
+
+def key_pressed(data):
+    for off in range(0, len(data) - SZ + 1, SZ):
+        if struct.unpack_from(FMT, data, off)[2] == EV_KEY:
+            return True
+    return False
+
+
+def main():
+    timeout, wake_on_start = read_conf()
+    fds = []
+    for node in key_devices():
+        try:
+            fds.append(os.open(node, os.O_RDONLY | os.O_NONBLOCK))
+        except OSError:
+            pass
+    if not fds:
+        return
+
+    screen = Screen(open_display())
+    screen.start(bool(wake_on_start))
+    on = bool(wake_on_start)
+    log("screen-timeout: started (%s, timeout %gs)"
+        % ("KMS DPMS" if screen.display is not None else "backlight only", timeout))
+    last_activity = time.monotonic()
+
+    while True:
+        ready, _, _ = select.select(fds, [], [], 1.0)
+        pressed = False
+        for fd in ready:
+            try:
+                pressed = key_pressed(os.read(fd, SZ * 64)) or pressed
+            except OSError:
+                continue
+        now = time.monotonic()
+        if pressed:
+            last_activity = now
+            if not on:
+                screen.set(True)
+                on = True
+        elif on and (now - last_activity) >= timeout:
+            screen.set(False)
+            on = False
+
+
+if __name__ == "__main__":
+    # The device layer's own modules (lib/callbox_device), beside this script's sbin/ in the release.
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "lib"))
+    main()

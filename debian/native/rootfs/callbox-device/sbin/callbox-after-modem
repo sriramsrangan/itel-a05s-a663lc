@@ -1,0 +1,4 @@
+#!/bin/sh
+# Wait for the modem's AT channels (created once modem_control has started the modem), then run.
+/opt/callbox-device/current/sbin/callbox-wait-dev.sh /dev/stty_lte2 120 || exit 1
+exec "$@"
