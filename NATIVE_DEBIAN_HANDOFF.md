@@ -1,6 +1,6 @@
 # itel A05s native Debian and telephony handoff
 
-Updated 19 November 2026 at 01:35 IST. All working artifacts and backups are in this workspace. Start here, then read [device setup notes](debian-setup/README.md) and [the earlier unlock handoff](PHONE_UNLOCK_HANDOFF.md).
+Updated 19 November 2026 at 02:00 IST. The phone has not been seen since 01:16:51 (see Install Attempt). All working artifacts and backups are in this workspace. Start here, then read [device setup notes](debian-setup/README.md) and [the earlier unlock handoff](PHONE_UNLOCK_HANDOFF.md).
 
 ## Goal
 
@@ -26,7 +26,8 @@ The interfaces between the parties are fixed in [the call box contract](debian-s
 6. Boot image that switches root to Debian, proven first from slot b with the root filesystem in RAM. Status: done; see Verified Debian Userland.
 7. Reformat userdata, install Debian, move the production image to slot a, keep a known-good image in slot b. Status: first attempt at 01:16 lost contact (see Install Attempt); redesigned install ready (p2).
 8. End-to-end tests: Wi-Fi with LTE fallback, SSH, NTP, reboot survival, SMS between the phone's own SIMs, the 121 call with DTMF audio, a server-triggered `kind: test` call to 121. Status: to do.
-9. Preserve the distribution for the second phone: images, root filesystem and checksums in `debian-setup/native/dist/`, with install steps. Status: to do.
+9. Phone-vault code in git: PR #2 merged to `main` as `35c1e03` on 19 November 2026 (the repository has no CI). Firmware, device binaries, backups, keys and recordings stay excluded.
+10. Preserve the distribution for the second phone: images, root filesystem and checksums in `debian-setup/native/dist/`, with install steps. Status: to do.
 
 ## Handset And SIMs
 
@@ -119,6 +120,24 @@ At 01:16 the install image (p1) booted from slot b and fetched the root filesyst
 - Redesign (p2): the install image boots exactly like the RAM test, and Debian itself formats userdata and copies itself across (`callbox-install-to-disk`) once the modem services run.
 - If the phone does not come back, it needs a person: hold volume down and power for fastboot, then `fastboot --set-active=b` with `debian-boot-p2-install.img` in `boot_b` (or reflash the stock or Magisk `boot_a` and `fastboot -w` for Android).
 - All 277 original unlock backups, the five slot b originals and the firmware archive verified before the install (19 November 2026, 01:05).
+
+## Morning Recovery
+
+*How the boot-looping phone was brought back on 19 November 2026.*
+
+The phone was found in a boot loop on slot a. After the reset during the p1 install, the bootloader started Android on a userdata that was now partly written ext4. Android could not mount it and never reached recovery, and the key combinations for recovery and fastboot did nothing. The only way in left was Unisoc BootROM download mode (Volume Down while connecting USB). From there the plan was to write the p2 install image to `boot_a`.
+
+- 07:30: `spd-bootrom ... write_part boot_a debian-boot-p2-install.img` loaded FDL1 and FDL2, then START_DATA got 0x89 (`BSL_REP_DOWN_DEST_ERROR`). Nothing was written. The kit tool returns quietly on a refused start, so the next command then timed out. The image is exactly the partition size (0x4000000), so later attempts used a copy trimmed to its content, rounded to 4 KB (`debian-boot-p2-install-trim.img`, 0x2d6e000 bytes, SHA-256 `16b35294350db12e…`).
+- 07:35 to 07:41: three more attempts. One device did not answer its first control transfer, in one FDL2 did not answer after EXEC, and one was still running when it was stopped. Nothing was written.
+- Decision: the owner ran the write from the Codex session that built the recovery kit. The trimmed install image was written to `boot_a` and read back for verification. The working loader sequence is to be recorded here for the second handset.
+- 08:00:55: the p2 install image booted from slot a, fetched the root filesystem over Wi-Fi (phone at 192.168.0.X) and answered SSH at 08:03 with `modem_control` running and LTE up. `callbox-install-to-disk` reported "DONE: userdata holds Debian (424 MB)". A read-only check of userdata showed the full tree, `inittab` and busybox present, and neither the RAM-test flag nor the install flag copied across.
+- The pstore record from before that boot (`build/pstore-0803/`, bit-damaged but readable) holds the p1 messages: "formatting userdata as ext4" then "FAILED: mke2fs: Error relocating ... libblkid.so.1: econf_readConfig: symbol not found". The Alpine mke2fs in the p1 ramdisk could not load its libraries, so p1 stopped at the format step and its fail step rebooted the phone. This corrects the watchdog explanation in Install Attempt. Why Android then looped on slot a is not shown by the record.
+- Caution: in Debian, `/dev/block/by-name/boot_b` points at `boot_a` (`mmcblk0p34`), like every `_b` name, for the modem tools. Write boot images by partition number from sysfs PARTNAME: `boot_a` is `mmcblk0p34`, `boot_b` is `mmcblk0p35`, `misc` is `mmcblk0p3`, `userdata` is `mmcblk0p68`.
+- 08:05: SSH to 192.168.0.X stopped answering before the disk image was written to `boot_a`. Codex had written the p2 disk image and reset the phone. Debian booted from userdata (heartbeats over LTE from 08:08) but was not found on Wi-Fi.
+- p3 disk image (`debian-boot-p3-disk.img`, trimmed copy SHA-256 `4d8aa5355e26b431…`): in disk mode the ramdisk now loads `wcn_bsp` and `sprd_wlan_combo` with prodnv mounted read-only, as the RAM boot does, and logs a missing `wlan0` instead of failing. Codex wrote it to `boot_a` (read back over SSH: match). It booted at 08:16 on Wi-Fi. Codex's own record of its steps is in `DEBIAN_FLASH_2026-11-19.md`. It wrote the p2 disk image over SSH at about 08:05 and then looked for the phone only at 192.168.0.X. In the p2 disk boot's log `wlan0` came up, so that boot most likely had Wi-Fi at an address nobody checked (see the MAC entry below). The p3 change is kept as a harmless safeguard, but it is not proven to have been needed.
+- Real cause of the "no Wi-Fi" boots: the Wi-Fi driver invents a new MAC on every boot (prodnv has no `wifimac.txt`), so each boot got a new address (.24, .84, then .9), and the phone was being looked for at the old one. Fix: `/etc/callbox/wifi-mac` (`02:00:00:00:00:01`) is applied by `callbox-sysinit` before `wpa_supplicant` starts. A reboot at 08:29:46 returned on that MAC at 192.168.0.X in 70 seconds. The main router (Archer BE400) now reserves 192.168.0.X for it. The router's library call fails on this firmware. What works is the web UI's own request: AES-encrypted JSON `{"operation":"insert","new":[{mac, ip, comment, enable}],"index":0}` posted as a JSON body to `admin/dhcps?form=reservation`. A second handset needs its own MAC in `wifi-mac`.
+- 08:20, over SSH, each backed up first and read back after writing: `boot_b` (`mmcblk0p35`, previously the p1 installer, saved to `build/boot_b-before-0820.img`) now holds `debian-boot-p2-ram.img` (`c92001f4…`). `logo` (`mmcblk0p11`) now shows the Debian open use logo in place of the itel screen. It was built from the phone's own logo container (six gzip BMPs, 720 by 1612, 24-bit), changing only `4.bmp`. The original is in `debian-setup/firmware/logo/logo-partition-phone-backup.bin`, and the bootloader shows the new screen.
+- Mistake caught: a copy over SSH sent an empty `callbox-sysinit` that still passed `sh -n` and replaced the original. It was restored before any reboot and checked by size, content and MD5. Copies to the phone now check the byte count before replacing a file.
 
 ## Call Audio Findings
 

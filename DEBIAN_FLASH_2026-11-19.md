@@ -1,0 +1,8 @@
+# Debian flash attempt, 19 November 2026
+
+- The same unlocked itel A05s entered Unisoc download mode. Both FDL stages started and a full `misc` read confirmed slot a active.
+- Flashed `debian-setup/native/out/debian-boot-p2-install-trim.img` to `boot_a`. Read back all 47,636,480 bytes to `unlock-work/working/boot-a-p2-verify.bin`; both SHA-256 values were `16b35294350db12eded4dc2b541c384aeda81a8cb09c8a4f921cefb1a4cefb3a`.
+- Rebooted. The phone downloaded the r7 root filesystem from the local server at 192.168.0.X:8088, and the RAM installer became reachable at 192.168.0.X over SSH. It reported `p2 install`, formatted userdata, copied the filesystem, and reported `DONE: userdata holds Debian (424 MB); flash the disk boot image to boot_a`.
+- Transferred `debian-boot-p2-disk.img` to the phone and wrote it to `/dev/block/by-name/boot_a`. The full 64 MiB partition read-back SHA-256 matched the image: `fef897603b617e52e8997f33652456fb90628f1b4652103f8e349b373891d5f1`.
+- Sent `sync; reboot`. The phone displayed the itel logo, but SSH at its previous address 192.168.0.X did not return during initial observation. Disk boot is **not verified**. Avoid claiming the call/SMS gateway works. Next diagnose disk boot, network address and pstore; the BootROM route and prior backups remain available.
+- At the user's direction, subsequently wrote `debian-boot-p3-disk-trim.img` to `boot_a` only. Read back 42,328,064 bytes to `unlock-work/working/boot-a-p3-verify.bin`; both SHA-256 values were `4d8aa5355e26b43130e28d7b12267814b54c6d052eec90bb9f54c335d76c58d2`. Issued a download-mode reset after verification. Userdata and other partitions were not written during the p3 operation. Boot outcome pending.

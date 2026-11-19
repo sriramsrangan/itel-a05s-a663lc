@@ -96,6 +96,13 @@ case $MODE in
     touch /newroot/etc/callbox-ram-test /newroot/etc/callbox-install-to-disk
     ;;
   *)
+    # Load the Wi-Fi drivers here, with prodnv mounted, exactly as the proven RAM boot does;
+    # Debian then only starts wpa_supplicant and DHCP. A missing wlan0 is logged, not fatal.
+    mkdir -p /mnt/vendor; mount -t ext4 -o ro /dev/block/by-name/prodnv /mnt/vendor
+    insmod /lib/modules-extra/wcn_bsp.ko 2>>/tmp/insmod.err; insmod /lib/modules-extra/sprd_wlan_combo.ko 2>>/tmp/insmod.err
+    i=0; while [ ! -d /sys/class/net/wlan0 ] && [ $i -lt 40 ]; do sleep 1; i=$((i+1)); done
+    [ -d /sys/class/net/wlan0 ] && log "wlan0 present after ${i}s" || log "wlan0 missing after ${i}s: $(tail -c 200 /tmp/insmod.err)"
+    umount /mnt/vendor 2>/dev/null
     i=0; while ! mount -t ext4 -o noatime /dev/block/by-name/userdata /newroot 2>/tmp/mount.err; do
       i=$((i+1)); [ $i -ge 10 ] && fail "cannot mount userdata: $(cat /tmp/mount.err)"; sleep 2
     done

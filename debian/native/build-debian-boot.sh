@@ -19,6 +19,10 @@ if [ "$MODE" != disk ]; then
   mkdir -p $R/alp && (cd dl/alpine/root && tar cf - lib) | tar xf - -C $R/alp
   (cd dl/alpine/root-wifi && tar cf - usr/lib sbin/wpa_supplicant sbin/wpa_cli) | tar xf - -C $R/alp
 fi
+if [ "$MODE" = disk ]; then
+  cp android-modem/wcn-fw/* $R/lib/firmware/
+  cp vendor_dlkm/wcn_bsp.ko vendor_dlkm/sprd_wlan_combo.ko $R/lib/modules-extra/
+fi
 cp initramfs/bcab-slot-a.bin $R/
 cp initramfs/modules-extra/*.ko $R/lib/modules-extra/
 chmod 0755 $R/init $R/bin/busybox; [ -f $R/udhcpc.script ] && chmod 755 $R/udhcpc.script
